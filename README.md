@@ -64,10 +64,16 @@
 
 ## 🚀 Installation Rapide (En 1 Ligne)
 
-Pour cloner et lancer l'installateur interactif en une seule commande :
+Pour installer et lancer l'environnement Kortex directement en une seule commande :
 
 ```bash
-git clone https://github.com/loukacaby/kortex-system.git ~/kortex-system && cd ~/kortex-system && ./install.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/vexlab-off/Kortex/main/install.sh)
+```
+
+Ou en clonant le dépôt :
+
+```bash
+git clone https://github.com/vexlab-off/Kortex.git ~/kortex-system && cd ~/kortex-system && ./install.sh
 ```
 
 > [!TIP]
@@ -83,7 +89,7 @@ git clone https://github.com/loukacaby/kortex-system.git ~/kortex-system && cd ~
 ### 1. Cloner le dépôt
 
 ```bash
-git clone https://github.com/loukacaby/kortex-system.git ~/kortex-system
+git clone https://github.com/vexlab-off/Kortex.git ~/kortex-system
 cd ~/kortex-system
 ```
 

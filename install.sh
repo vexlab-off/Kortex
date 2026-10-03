@@ -25,6 +25,21 @@ BOOTLOADER_DIR="${SCRIPT_DIR}/bootloader"
 BACKUP_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_DIR="${HOME}/.config/kortex-backups/backup_${BACKUP_TIMESTAMP}"
 
+# Auto-bootstrap si exécuté directement (ex: curl -fsSL ... | bash)
+if [[ ! -d "$DOTFILES_DIR" ]]; then
+  echo -e "\033[0;34m\033[1m[INFO]\033[0m Dépôt Kortex non trouvé localement. Clonage automatique..."
+  REPO_URL="https://github.com/vexlab-off/Kortex.git"
+  BOOTSTRAP_DIR="${HOME}/.local/share/kortex-system"
+  mkdir -p "$(dirname "$BOOTSTRAP_DIR")"
+  if [[ -d "$BOOTSTRAP_DIR/.git" ]]; then
+    git -C "$BOOTSTRAP_DIR" pull --ff-only 2>/dev/null || true
+  else
+    rm -rf "$BOOTSTRAP_DIR"
+    git clone "$REPO_URL" "$BOOTSTRAP_DIR"
+  fi
+  exec bash "$BOOTSTRAP_DIR/install.sh" "$@"
+fi
+
 # Flags par défaut
 OPT_CONFIGS=false
 OPT_PACKAGES=false
