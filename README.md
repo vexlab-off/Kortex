@@ -2,7 +2,7 @@
 
 # 🌌 KORTEX SYSTEM SETUP
 
-### *Environnement Hyprland & Omarchy Shell ultra-personnalisé, moderne et performant*
+### *Environnement Hyprland & Kortex Shell ultra-personnalisé, moderne et performant*
 
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-1793D1?style=for-the-badge&logo=arch-linux&logoColor=white)](https://archlinux.org/)
 [![Hyprland](https://img.shields.io/badge/Hyprland-Wayland-00B4D8?style=for-the-badge&logo=hyprland&logoColor=white)](https://hyprland.org/)
@@ -45,7 +45,7 @@
 ## ✨ Points Forts
 
 - 🪟 **Hyprland & Stack Wayland en Lua** : Architecture déclarative en Lua (`~/.config/hypr/`), disposition clavier française AZERTY (`fr`) avec `compose:caps`, correctifs multi-écrans et stabilité matérielle NVIDIA (`no_hardware_cursors = true`).
-- 🍸 **Barre Supérieure Quickshell / Omarchy Shell** :
+- 🍸 **Barre Supérieure Kortex / Quickshell** :
   - **Menu Kortex personnalisé (`nezumi.menu`)** avec logo Kortex vectoriel et intégration système.
   - **Widgets intégrés** : Apple Music & Apple Music Mini, contrôle des lumières Govee, statut des AirPods / Omapods, bascule NordVPN directe, gestionnaire multi-écrans `hyprmoncfg`, date & météo, contrôle audio, réseau, bluetooth et statut de mise à jour.
 - ⌨️ **Éditeur de Raccourcis Live (`kortex-menu-keybindings`)** :
@@ -105,7 +105,7 @@ Vous pourrez alors choisir :
 1. **Installation Complète** (Configs, paquets essentiels, plugins, fond d'écran)
 2. **Configurations & Dotfiles uniquement** (sans toucher aux paquets système)
 3. **Paquets Système uniquement** (Pacman, AUR et Flatpak)
-4. **Plugins & Thèmes Omarchy uniquement**
+4. **Plugins & Thèmes de la barre Kortex uniquement**
 5. **Migration Bootloader (Limine -> GRUB)**
 
 ---
@@ -120,7 +120,7 @@ Le script `install.sh` est entièrement scriptable et accepte de nombreux drapea
 | `-c`, `--configs` | Installe uniquement les dotfiles (`~/.config`, `~/.local/bin`, shell, wallpaper). |
 | `-p`, `--packages` | Installe les paquets via `pacman` et votre helper AUR (`yay` / `paru`). |
 | `--essential-only` | À combiner avec `-p` : restreint aux logiciels essentiels du bureau. |
-| `--plugins` | Installe et active les extensions et thèmes Omarchy Shell. |
+| `--plugins` | Installe et active les extensions et thèmes de la barre Kortex. |
 | `-b`, `--bootloader` | Lance la migration complète vers GRUB (Thème Tartarus). |
 | `--copy` | Copie les fichiers au lieu de créer des liens symboliques. |
 | `-y`, `--yes` | Mode sans confirmation (automatisation). |
@@ -169,7 +169,7 @@ kortex-system/
 ├── dotfiles/
 │   ├── .config/
 │   │   ├── hypr/                  # Configuration Hyprland modulaire (Lua)
-│   │   ├── kortex/                # Configuration Kortex & Omarchy Shell (JSON, branding, plugins)
+│   │   ├── kortex/                # Configuration Kortex Shell (JSON, branding, plugins)
 │   │   ├── fastfetch/             # Configuration Fastfetch avec logo ASCII
 │   │   ├── kitty/                 # Configuration Kitty Terminal
 │   │   ├── ghostty/               # Configuration Ghostty Terminal
@@ -192,7 +192,7 @@ kortex-system/
 │   ├── pacman-all.txt             # Liste exhaustive des paquets du système
 │   ├── aur-packages.txt           # Paquets AUR spécifiques
 │   ├── flatpak-packages.txt       # Applications Flatpak
-│   └── omarchy-plugins.txt        # Dépôts des plugins et thèmes de la barre
+│   └── kortex-plugins.txt         # Dépôts des plugins et thèmes de la barre
 ├── assets/
 │   └── wallpapers/                # Fond d'écran Kortex haute résolution (4K)
 └── bootloader/
@@ -220,9 +220,9 @@ Aucun de vos anciens fichiers n'est écrasé sans possibilité de restauration i
 
 - **Changer de thème :**
   ```bash
-  omarchy theme set lawson-night
+  kortex theme set lawson-night
   # ou
-  omarchy theme set mars
+  kortex theme set mars
   ```
 - **Définir un fond d'écran :**
   ```bash

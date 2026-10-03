@@ -75,7 +75,7 @@ banner() {
  | . \ |__| | | \ \_| |_| |____ / . \ 
  |_|\_\____/|_|  \_\_____|_____/_/ \_\
                                       
-  Environnement Hyprland & Omarchy Shell personnalisé
+  Environnement Hyprland & Kortex Shell personnalisé
 EOF
   echo -e "${CYAN}------------------------------------------------------------${NC}\n"
 }
@@ -105,7 +105,7 @@ Options :
   -c, --configs         Installer uniquement les dotfiles et scripts (~/.config, ~/.local/bin)
   -p, --packages        Installer les paquets système (pacman et AUR)
       --essential-only  Avec --packages : installe uniquement les paquets essentiels
-      --plugins         Installer et activer les thèmes et plugins Omarchy
+      --plugins         Installer et activer les thèmes et plugins de la barre Kortex
   -b, --bootloader      Lancer la migration du bootloader vers GRUB (Thème Tartarus)
       --copy            Copier les fichiers au lieu de créer des liens symboliques
   -y, --yes             Mode non interactif (répond automatiquement 'Oui')
@@ -273,7 +273,7 @@ install_packages() {
   info "Installation des paquets logiciels..."
 
   if ! command -v pacman &>/dev/null; then
-    error "Pacman n'est pas détecté. Ce script est conçu pour Arch Linux / Omarchy."
+    error "Pacman n'est pas détecté. Ce script est conçu pour Arch Linux."
     return 1
   fi
 
@@ -348,39 +348,44 @@ install_packages() {
 # Installation des Plugins et Thèmes Omarchy
 # ------------------------------------------------------------------------------
 install_plugins() {
-  info "Installation des plugins et thèmes Omarchy / Kortex..."
+  info "Installation des plugins et thèmes de la barre Kortex..."
 
-  if ! command -v omarchy &>/dev/null; then
-    warn "La commande 'omarchy' n'est pas installée. Ignoré."
+  if ! command -v omarchy &>/dev/null && ! command -v kortex &>/dev/null; then
+    warn "Le gestionnaire de plugins n'est pas disponible sur ce système. Ignoré."
     return 0
   fi
 
-  local plugins_file="${PACKAGES_DIR}/omarchy-plugins.txt"
+  local plugins_file="${PACKAGES_DIR}/kortex-plugins.txt"
+  [[ ! -f "$plugins_file" ]] && plugins_file="${PACKAGES_DIR}/omarchy-plugins.txt"
+
   if [[ ! -f "$plugins_file" ]]; then
-    warn "Fichier $plugins_file introuvable."
+    warn "Fichier des plugins ($plugins_file) introuvable."
     return 0
   fi
 
   if [[ "$OPT_DRY_RUN" == "true" ]]; then
-    info "[DRY-RUN] Installation des plugins Omarchy depuis $plugins_file"
+    info "[DRY-RUN] Installation des plugins de la barre Kortex depuis $plugins_file"
     return 0
   fi
+
+  local mgr="omarchy"
+  command -v kortex &>/dev/null && mgr="kortex"
 
   while IFS= read -r url || [[ -n "$url" ]]; do
     url="$(echo "$url" | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     if [[ -n "$url" ]]; then
       if [[ "$url" =~ theme ]]; then
         info "Installation du thème : $url"
-        omarchy theme install "$url" 2>/dev/null || true
+        $mgr theme install "$url" 2>/dev/null || true
       else
         info "Ajout du plugin : $url"
-        omarchy plugin add "$url" --enable 2>/dev/null || true
+        $mgr plugin add "$url" --enable 2>/dev/null || true
       fi
     fi
   done < "$plugins_file"
 
   # Application du thème par défaut
-  omarchy theme set Vantablack 2>/dev/null || true
+  $mgr theme set Vantablack 2>/dev/null || true
 
   # Rechargement de l'environnement actif
   if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
@@ -389,12 +394,12 @@ install_plugins() {
   fi
 
   if command -v omarchy-shell &>/dev/null; then
-    info "Rechargement de Omarchy Shell..."
+    info "Rechargement de l'interface Kortex..."
     omarchy-shell shell reload >/dev/null 2>&1 || true
     omarchy-shell -q background setAnimation true 2>/dev/null || true
   fi
 
-  success "Plugins et thèmes Omarchy installés et configurés !"
+  success "Plugins et thèmes Kortex installés et configurés !"
 }
 
 # ------------------------------------------------------------------------------
@@ -486,7 +491,7 @@ interactive_menu() {
   echo -e "  ${GREEN}1)${NC} ${BOLD}Installation Complète${NC} (Configs + Paquets essentiels + Plugins + Fond d'écran)"
   echo -e "  ${GREEN}2)${NC} Configurations & Dotfiles uniquement (~/.config, scripts ~/.local/bin)"
   echo -e "  ${GREEN}3)${NC} Paquets Système uniquement (Pacman + AUR + Flatpak)"
-  echo -e "  ${GREEN}4)${NC} Plugins & Thèmes Omarchy Shell uniquement"
+  echo -e "  ${GREEN}4)${NC} Plugins & Thèmes de la barre Kortex uniquement"
   echo -e "  ${GREEN}5)${NC} Migration Bootloader (Limine -> GRUB avec Thème Tartarus)"
   echo -e "  ${RED}6)${NC} Quitter\n"
 

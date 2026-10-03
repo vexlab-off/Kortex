@@ -1,12 +1,12 @@
 # 🚀 Migration Bootloader : Limine vers GRUB (Thème Tartarus)
 
-Ce dossier contient les outils nécessaires pour migrer un système **Omarchy** (initialement installé avec le chargeur d'amorçage **Limine**) vers **GRUB** en intégrant le thème graphique haute définition **Tartarus**.
+Ce dossier contient les outils nécessaires pour migrer un système (initialement configuré avec le chargeur d'amorçage **Limine**) vers **GRUB** en intégrant le thème graphique haute définition **Tartarus**.
 
 ---
 
 ## 📋 Prérequis et Prise en charge
 
-- **Système** : Arch Linux / Omarchy démarré en mode **UEFI** (`/sys/firmware/efi`).
+- **Système** : Arch Linux démarré en mode **UEFI** (`/sys/firmware/efi`).
 - **Partitionnement supporté** :
   - Standard EFI + ext4 / btrfs
   - Chiffrement complet **LUKS2** avec sous-volumes **Btrfs**
@@ -20,7 +20,7 @@ Ce dossier contient les outils nécessaires pour migrer un système **Omarchy** 
 |---|---|
 | `switch_to_grub.sh` | Script d'automatisation de la migration, détection des disques et UUIDs LUKS, configuration de `/etc/default/grub` et regénération de `grub.cfg`. |
 | `tartarus-grub/` | Fichiers graphiques, polices et assets du thème GRUB Tartarus. |
-| `limine-dummy/` | Paquet dummy Arch Linux qui fournit virtuellement les dépendances Limine d'Omarchy pour éviter les blocages lors des mises à jour système (`pacman -Syu`). |
+| `limine-dummy/` | Paquet dummy Arch Linux qui fournit virtuellement les paquets Limine pour éviter d'éventuels conflits de dépendances lors des mises à jour système (`pacman -Syu`). |
 
 ---
 
