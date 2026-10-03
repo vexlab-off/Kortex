@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "nezumi.menu",
+  "name": "My Kortex menu",
+  "version": "1.0.0",
+  "author": "Kortex",
+  "description": "Quickshell-powered Kortex command menu",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "My Kortex menu",
+    "description": "Launches the Kortex menu",
+    "category": "Compositor",
+    "allowMultiple": false
+  }
+}

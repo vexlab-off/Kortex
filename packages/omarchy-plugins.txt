@@ -1,0 +1,17 @@
+# ==============================================================================
+# Plugins tiers et Thèmes pour Omarchy / Kortex
+# ==============================================================================
+
+# Plugins de la barre et services (Omarchy Shell / Quickshell)
+https://github.com/iuliansafta/omarchy-apple-music.git
+https://github.com/mlambert-uk/omarchy-govee.git
+https://github.com/prostratepossum/omarchy-starwatch-lock.git
+https://github.com/prostratepossum/omarchy-starwatch-background.git
+https://github.com/prostratepossum/omarchy-starwatch-intro.git
+https://github.com/MB-JAMBON/omarchy-pods.git
+https://github.com/guiestrela/omarchy-norvpn-plugin.git
+https://github.com/crmne/omarchy-hyprmoncfg.git
+
+# Thèmes Kortex / Omarchy
+https://github.com/steve-lohmeyer/omarchy-mars-theme
+https://github.com/phuclh/omarchy-lawson-night-theme.git

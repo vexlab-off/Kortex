@@ -1,0 +1,6 @@
+#!/bin/bash
+if [[ "${UNAME_RAW:-0}" == "1" ]]; then
+  exec /usr/bin/uname "$@"
+fi
+
+/usr/bin/uname "$@" | sed 's/omarchy/kortex/g'

@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# omarchy-agent wrapper adding anti-gravity support
+
+# Check if default agent is anti-gravity
+current_agent=$(kortex-default-agent 2>/dev/null || omarchy-default-agent)
+
+if [[ "$current_agent" == "anti-gravity" || "$current_agent" == "antigravity" || "$current_agent" == "agy" ]]; then
+  inline=false
+  pick=false
+  prompt=""
+
+  while (($#)); do
+    case "$1" in
+      --inline)
+        inline=true
+        shift
+        ;;
+      --pick)
+        pick=true
+        shift
+        ;;
+      --prompt)
+        prompt=${2:?--prompt needs a value}
+        shift 2
+        ;;
+      *)
+        echo "Unexpected argument: $1" >&2
+        echo "To pass a prompt: kortex agent prompt \"$*\"" >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  [[ $PWD == "$HOME" && -d $HOME/Work ]] && cd "$HOME/Work"
+
+  command=(agy --dangerously-skip-permissions)
+  [[ -n ${prompt:-} ]] && command+=(--prompt-interactive "$prompt")
+
+  if [[ $inline == "true" ]]; then
+    exec "${command[@]}"
+  else
+    exec omarchy-launch-tui --app-id=org.omarchy.agent "${command[@]}"
+  fi
+fi
+
+# Fallback to system omarchy-agent for all other agents
+exec /usr/share/omarchy/bin/omarchy-agent "$@"

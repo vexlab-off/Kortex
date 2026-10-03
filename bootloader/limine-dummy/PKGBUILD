@@ -1,0 +1,17 @@
+pkgname=limine-dummy
+pkgver=99.0
+pkgrel=1
+pkgdesc="Dummy package to satisfy Omarchy dependencies without Limine"
+arch=('any')
+license=('MIT')
+provides=(
+  'limine=99.0'
+  'limine-mkinitcpio-hook=99.0'
+  'limine-snapper-sync=99.0'
+  'limine-entry-tool=99.0'
+)
+
+package() {
+  mkdir -p "$pkgdir/usr/share/doc/$pkgname"
+  echo "Dummy package replacing Limine with GRUB" > "$pkgdir/usr/share/doc/$pkgname/README"
+}

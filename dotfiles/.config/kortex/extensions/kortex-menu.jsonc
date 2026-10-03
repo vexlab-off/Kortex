@@ -1,0 +1,37 @@
+{
+  // Extend the Quickshell Omarchy menu with JSONC.
+  //
+  // IDs are object keys. The parent is inferred from the dotted id, so
+  // "personal.notes" appears under "personal", and "personal" appears on the
+  // root menu. Reuse an existing id to override/extend it.
+
+  // Root Menu title
+  "root": {
+    "label": "Kortex Menu",
+    "title": "Kortex Menu"
+  },
+
+  // Replace Gemini with Anti-Gravity in Setup > Default > Agent
+  "setup.default.agent.gemini": {
+    "icon": "󰚩",
+    "label": "Anti-Gravity",
+    "checked": "[[ \"$(kortex-default-agent)\" == \"anti-gravity\" ]]",
+    "action": "kortex-default-agent anti-gravity",
+    "aliases": ["anti-gravity", "antigravity", "agy"]
+  },
+
+  // Learn Kortex
+  "learn.omarchy": {
+    "icon": "",
+    "label": "Kortex",
+    "action": "kortex-launch-webapp 'https://omarchy.org/manual/'"
+  },
+
+  // Update Kortex
+  "update.omarchy": {
+    "icon": "",
+    "iconFont": "omarchy",
+    "label": "Kortex",
+    "action": "kortex-launch-floating-terminal-with-presentation kortex-update"
+  }
+}

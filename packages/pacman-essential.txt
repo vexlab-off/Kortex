@@ -1,0 +1,57 @@
+# ==============================================================================
+# Paquets essentiels Omarchy / Kortex (Hyprland + Shell + Terminal + Audio)
+# ==============================================================================
+
+# Compositor & Shell
+hyprland
+hyprpicker
+hyprsunset
+quickshell
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+xdg-terminal-exec
+wl-clipboard
+grim
+slurp
+wtype
+
+# Audio, Bluetooth & Hardware
+pipewire
+pipewire-alsa
+pipewire-jack
+pipewire-pulse
+wireplumber
+libpulse
+pamixer
+bluez
+bluez-utils
+brightnessctl
+
+# Terminals & Shell Tools
+kitty
+ghostty
+alacritty
+foot
+fastfetch
+starship
+tmux
+zoxide
+eza
+bat
+fzf
+ripgrep
+fd
+jq
+
+# Système, Utilitaires & Polices
+bash-completion
+sudo
+git
+base-devel
+btop
+imagemagick
+ttf-jetbrains-mono-nerd-basic
+noto-fonts
+noto-fonts-emoji
+noto-fonts-cjk
+yaru-icon-theme

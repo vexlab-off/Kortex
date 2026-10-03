@@ -1,0 +1,25 @@
+# Fichiers temporaires et sauvegardes
+*.bak
+*.bak.*
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs et caches
+*.log
+.cache/
+.omarchy/
+.local/state/
+
+# Secrets et variables locales
+.env
+.env.*
+*.pem
+*.key
+*.id_rsa
+
+# Fichiers d'environnement IDE
+.vscode/
+.idea/

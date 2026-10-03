@@ -1,0 +1,609 @@
+#!/bin/bash
+
+# kortex:summary=Gestionnaire et éditeur de raccourcis Hyprland (Omarchy / Kortex).
+# kortex:args=[--print|-p] [--edit|-e] [--set-key <desc> <key>] [--test] [--rofi]
+# kortex:examples=kortex-menu-keybindings | kortex-menu-keybindings --edit | kortex-menu-keybindings --set-key Terminal "SUPER + RETURN"
+
+# Important: on ne met PAS "set -e" global pour éviter qu'un dialogue annulé (code retour 1) ne tue le script silencieusement.
+set -uo pipefail
+
+BINDINGS_FILE="${HOME}/.config/hypr/bindings.lua"
+
+declare -A LUA_BIND_KEY_MAP
+declare -A LUA_BIND_DISPATCHER_MAP
+declare -A LUA_BIND_ARG_MAP
+
+# -------------------------------------------------------------------------
+# RÉSOLUTION ET PARSING DES TOUCHES
+# -------------------------------------------------------------------------
+
+parse_keycodes() {
+  awk '
+    BEGIN {
+      split("10=1 11=2 12=3 13=4 14=5 15=6 16=7 17=8 18=9 19=0 20=MINUS 21=EQUAL 59=COMMA 60=PERIOD 61=SLASH", fallbacks, " ")
+      for (i in fallbacks) {
+        separator = index(fallbacks[i], "=")
+        keycode_symbol[substr(fallbacks[i], 1, separator - 1)] = substr(fallbacks[i], separator + 1)
+      }
+
+      keymap_cmd = "xkbcli compile-keymap </dev/null"
+      section = ""
+      while ((keymap_cmd | getline line) > 0) {
+        if (line ~ /xkb_keycodes/) { section = "codes"; continue }
+        if (line ~ /xkb_symbols/)  { section = "syms";  continue }
+        if (section == "codes" && match(line, /<([A-Za-z0-9_]+)>\s*=\s*([0-9]+)\s*;/, m)) code_by_name[m[1]] = m[2]
+        if (section == "syms" && match(line, /key\s*<([A-Za-z0-9_]+)>\s*\{\s*\[\s*([^, \]]+)/, m)) sym_by_name[m[1]] = m[2]
+      }
+      close(keymap_cmd)
+
+      for (name in code_by_name) {
+        code = code_by_name[name]
+        symbol = sym_by_name[name]
+        if (code != "" && symbol != "" && symbol != "NoSymbol") keycode_symbol[code] = toupper(symbol)
+      }
+
+      mouse_symbol["272"] = "LEFT MOUSE BUTTON"
+      mouse_symbol["273"] = "RIGHT MOUSE BUTTON"
+      mouse_symbol["274"] = "MIDDLE MOUSE BUTTON"
+    }
+    {
+      if (match($0, /code:([0-9]+)/, match_parts)) {
+        code = match_parts[1]
+        symbol = keycode_symbol[code]
+        if (symbol == "") symbol = "code:" code
+        sub("code:" code, symbol)
+      } else if (match($0, /mouse:([0-9]+)/, match_parts)) {
+        code = match_parts[1]
+        symbol = mouse_symbol[code]
+        if (symbol == "") symbol = "mouse:" code
+        sub("mouse:" code, symbol)
+      }
+      print
+    }
+  '
+}
+
+build_lua_bind_cache() {
+  local modmask description key dispatcher arg cache_key
+  command -v lua &>/dev/null || return 0
+
+  while IFS=$'\t' read -r modmask description key dispatcher arg; do
+    [[ -z $modmask || -z $description || -z $key ]] && continue
+    LUA_BIND_KEY_MAP["$modmask,$description"]="$key"
+    cache_key="$modmask,$description,$key"
+    LUA_BIND_DISPATCHER_MAP["$cache_key"]="$dispatcher"
+    LUA_BIND_ARG_MAP["$cache_key"]="$arg"
+  done < <(
+    lua <<'LUA'
+local modifiers = { SHIFT = 1, CTRL = 4, CONTROL = 4, ALT = 8, SUPER = 64 }
+
+local function split_keys(keys)
+  local modmask = 0
+  local key = ""
+  for part in string.gmatch(tostring(keys or ""), "[^+]+") do
+    local value = part:gsub("^%s+", ""):gsub("%s+$", "")
+    local modifier = modifiers[string.upper(value)]
+    if modifier then modmask = modmask + modifier else key = value end
+  end
+  return modmask, key
+end
+
+local function lua_literal(value)
+  local value_type = type(value)
+  if value_type == "string" then return string.format("%q", value)
+  elseif value_type == "number" or value_type == "boolean" then return tostring(value)
+  elseif value_type == "table" then
+    local parts, keys = {}, {}
+    local len = #value
+    for i = 1, len do parts[#parts + 1] = lua_literal(value[i]) end
+    for k in pairs(value) do
+      if not (type(k) == "number" and k >= 1 and k <= len and math.floor(k) == k) then keys[#keys + 1] = k end
+    end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    for _, k in ipairs(keys) do
+      local pfx = (type(k) == "string" and k:match("^[%a_][%w_]*$")) and (k .. " = ") or ("[" .. lua_literal(k) .. "] = ")
+      parts[#parts + 1] = pfx .. lua_literal(value[k])
+    end
+    return "{ " .. table.concat(parts, ", ") .. " }"
+  else return "nil" end
+end
+
+local function call_expression(path, ...)
+  local args = {}
+  for i = 1, select("#", ...) do args[i] = lua_literal(select(i, ...)) end
+  return path .. "(" .. table.concat(args, ", ") .. ")"
+end
+
+local function dispatcher(kind, arg, expr)
+  return { __omarchy_dispatcher = true, kind = kind or "", arg = arg or "", expr = expr or "" }
+end
+
+local function dsp_proxy(path)
+  return setmetatable({ path = path }, {
+    __index = function(self, k) return dsp_proxy(self.path .. "." .. tostring(k)) end,
+    __call = function(self, ...)
+      local first = ...
+      local expr = call_expression(self.path, ...)
+      if self.path == "hl.dsp.exec_cmd" and type(first) == "string" then return dispatcher("exec", first, expr) end
+      return dispatcher("lua", expr, expr)
+    end,
+  })
+end
+
+local noop; noop = setmetatable({}, { __index = function() return noop end, __call = function() return noop end })
+hl = setmetatable({
+  dsp = dsp_proxy("hl.dsp"),
+  bind = function(keys, bind_disp, opts)
+    opts = opts or {}
+    if opts.description and opts.description ~= "" then
+      local modmask, key = split_keys(keys)
+      local kind, arg = "", ""
+      if type(bind_disp) == "table" and bind_disp.__omarchy_dispatcher then
+        kind = bind_disp.kind or ""; arg = bind_disp.arg or bind_disp.expr or ""
+      elseif type(bind_disp) == "string" and bind_disp ~= "" then
+        kind = "exec"; arg = bind_disp
+      end
+      print(table.concat({ tostring(modmask), opts.description, key, kind, arg }, "\t"))
+    end
+    return noop
+  end,
+  get_config = function() return nil end,
+}, { __index = function() return noop end })
+
+local cfg = os.getenv("HOME") .. "/.config/hypr/hyprland.lua"
+local f = io.open(cfg, "r")
+if f then f:close(); pcall(dofile, cfg) end
+LUA
+  )
+}
+
+modmask_to_text() {
+  case "$1" in
+    0)  printf '' ;;
+    1)  printf 'SHIFT' ;;
+    4)  printf 'CTRL' ;;
+    5)  printf 'SHIFT CTRL' ;;
+    8)  printf 'ALT' ;;
+    9)  printf 'SHIFT ALT' ;;
+    12) printf 'CTRL ALT' ;;
+    13) printf 'SHIFT CTRL ALT' ;;
+    64) printf 'SUPER' ;;
+    65) printf 'SUPER SHIFT' ;;
+    68) printf 'SUPER CTRL' ;;
+    69) printf 'SUPER SHIFT CTRL' ;;
+    72) printf 'SUPER ALT' ;;
+    73) printf 'SUPER SHIFT ALT' ;;
+    76) printf 'SUPER CTRL ALT' ;;
+    77) printf 'SUPER SHIFT CTRL ALT' ;;
+    *)  printf '%s' "$1" ;;
+  esac
+}
+
+dynamic_bindings() {
+  hyprctl binds 2>/dev/null | awk '
+    function emit() {
+      if (!seen) return; seen = 0
+      printf "%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n", f["modmask"], f["key"], f["keycode"], f["description"], f["dispatcher"], f["arg"]
+    }
+    /^bind/ { emit(); seen = 1; delete f; next }
+    seen && match($0, /^\t[a-z]+: /) { f[substr($0, 2, RLENGTH - 3)] = substr($0, RLENGTH + 1) }
+    END { emit() }
+  ' |
+    while IFS=$'\x1f' read -r modmask key keycode description dispatcher arg; do
+      key="${key##* + }"
+      [[ -z $key && $keycode != "0" ]] && key="code:$keycode"
+      [[ -z $key && -n $description ]] && key="${LUA_BIND_KEY_MAP["$modmask,$description"]:-}"
+      if [[ $dispatcher == "__lua" && -n $description && -n $key ]]; then
+        local ck="$modmask,$description,$key"
+        dispatcher="${LUA_BIND_DISPATCHER_MAP["$ck"]:-}"
+        arg="${LUA_BIND_ARG_MAP["$ck"]:-}"
+      fi
+      [[ -z $description && $dispatcher == "__lua" ]] && continue
+      [[ $key == "code:201" ]] && continue
+      case "$key" in
+        comma) key="COMMA" ;; period) key="PERIOD" ;; minus) key="MINUS" ;; equal) key="EQUAL" ;; slash) key="SLASH" ;;
+      esac
+      local mods
+      mods=$(modmask_to_text "$modmask")
+      arg="${arg//~\/.local\/share\/omarchy\/bin\//}"
+      printf '%s,%s,%s,%s,%s\n' "$mods" "$key" "$description" "$dispatcher" "$arg"
+    done
+}
+
+static_bindings() {
+  echo "SHIFT ALT,L,Copy URL from Web App,sendshortcut,SHIFT ALT,L,"
+  echo "SHIFT ALT,D,Download Video from Web App,sendshortcut,SHIFT ALT,D,"
+}
+
+parse_binding_records() {
+  awk -F, '
+{
+    key_combo = $1 " + " $2;
+    gsub(/^[ \t]*\+?[ \t]*/, "", key_combo);
+    gsub(/[ \t]+$/, "", key_combo);
+    action = $3; dispatcher = $4; arg = "";
+    for (i = 5; i <= NF; i++) { arg = arg $i (i < NF ? "," : ""); }
+    if (action == "") {
+        for (i = 4; i <= NF; i++) { action = action $i (i < NF ? "," : ""); }
+        sub(/,$/, "", action);
+        gsub(/(^|,)[[:space:]]*exec[[:space:]]*,?/, "", action);
+        gsub(/(^|[[:space:]])uwsm(-app| app)[[:space:]]+--[[:space:]]+/, "", action);
+        gsub(/^[ \t]+|[ \t]+$/, "", action);
+        gsub(/[ \t]+/, " ", key_combo);
+    }
+    if (action != "") {
+        printf "%-35s → %s\t%s\t%s\n", key_combo, action, dispatcher, arg;
+    }
+}'
+}
+
+prioritize_entries() {
+  awk -F '\t' '
+  {
+    line = $1; prio = 50
+    if (match(line, /Keybindings/)) prio = 0
+    if (match(line, /Keybind Editor/)) prio = 0
+    if (match(line, /Omarchy menu/) || match(line, /Kortex Menu/)) prio = 1
+    if (match(line, /Terminal/)) prio = 2
+    if (match(line, /Browser/) && !match(line, /Browser[[:space:]]*\(/) && !match(line, /SUPER SHIFT.*\+.*B.*→.*Browser/)) prio = 3
+    if (match(line, /File manager/) && !match(line, /File manager \(cwd\)/)) prio = 4
+    if (match(line, /Launch apps/)) prio = 5
+    if (match(line, /System menu/)) prio = 6
+    if (match(line, /Theme menu/)) prio = 7
+    if (match(line, /Full screen/)) prio = 8
+    if (match(line, /Full width/)) prio = 9
+    if (match(line, /Close window/)) prio = 10
+    if (match(line, /Close all windows/)) prio = 11
+    if (match(line, /Lock system/)) prio = 12
+    if (match(line, /Toggle window floating/)) prio = 13
+    if (match(line, /Toggle window split/)) prio = 14
+    printf "%d\t%s\n", prio, $0
+  }' | sort -k1,1n -k2,2 | cut -f2-
+}
+
+output_binding_records_uncached() {
+  local dynamic
+  build_lua_bind_cache
+  dynamic=$(dynamic_bindings)
+  { [[ -n $dynamic ]] && printf '%s\n' "$dynamic"; static_bindings; } |
+    sort -u | parse_keycodes | parse_binding_records | prioritize_entries
+  [[ -n $dynamic ]]
+}
+
+keybindings_cache_key() {
+  { printf 'v11\n'; hyprctl devices 2>/dev/null | grep -F 'active keymap:'; hyprctl binds 2>/dev/null; } | sha256sum | awk '{ print $1 }'
+}
+
+output_binding_records() {
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy"
+  local cache_name="keybindings-$(keybindings_cache_key).records"
+  local cache_file="$cache_dir/$cache_name"
+  if [[ -s $cache_file ]]; then cat "$cache_file"
+  else output_binding_records_uncached; fi
+}
+
+output_keybindings() { output_binding_records | cut -f1; }
+
+dispatch_binding() {
+  local dispatcher="$1" arg="$2"
+  case "$dispatcher" in
+    exec) [[ -n $arg ]] && (hyprctl dispatch exec "$arg" &>/dev/null || true) ;;
+    lua)  [[ -n $arg ]] && (hyprctl dispatch "$arg" &>/dev/null || true) ;;
+    *)    [[ -n $arg ]] && hyprctl dispatch "$dispatcher" "$arg" || hyprctl dispatch "$dispatcher" ;;
+  esac
+}
+
+# -------------------------------------------------------------------------
+# MOTEUR D'ÉDITION DE RACCOURCI (CORE LOGIC)
+# -------------------------------------------------------------------------
+
+notify_user() {
+  local urgency="${1:-normal}" title="$2" message="$3"
+  if command -v omarchy-notification-send &>/dev/null; then
+    omarchy-notification-send -u "$urgency" "$title" "$message" 2>/dev/null || true
+  elif command -v notify-send &>/dev/null; then
+    notify-send -u "$urgency" -a "Keybind Editor" "$title" "$message" 2>/dev/null || true
+  fi
+  echo "[$urgency] $title: $message" >&2
+}
+
+normalize_key() {
+  echo "$1" | tr '[:lower:]' '[:upper:]' | sed -E 's/[[:space:]]*\+[[:space:]]*/ + /g' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+}
+
+get_action_for() {
+  local desc="$1" disp="${2:-}" arg="${3:-}"
+
+  # 1. Recherche prioritaire dans les fichiers sources Lua
+  local match
+  match=$(grep -h -F "\"$desc\"" "$BINDINGS_FILE" /usr/share/omarchy/default/hypr/bindings/*.lua 2>/dev/null | grep -E "(o|hl)\.bind" | head -n1 || true)
+  if [[ -n "$match" ]]; then
+    local action
+    action=$(echo "$match" | sed -E "s/^[[:space:]]*(o|hl)\.bind(_toggle)?[[:space:]]*\([^,]+,[[:space:]]*\"[^\"]+\",[[:space:]]*//" | sed -E "s/\)[[:space:]]*$//")
+    if [[ "$match" =~ o\.bind_toggle ]]; then
+      action=$(echo "$action" | sed -E 's/["'\'']//g' | xargs -I{} echo '"omarchy-toggle-{}"')
+    fi
+    printf '%s' "$action"
+    return 0
+  fi
+
+  # 2. Déduction selon dispatcher & arg
+  if [[ -n "$arg" ]]; then
+    if [[ "$disp" == "exec" ]]; then
+      printf '"%s"' "$arg"
+      return 0
+    elif [[ "$disp" == "lua" ]]; then
+      printf '%s' "$arg"
+      return 0
+    elif [[ "$disp" == "sendshortcut" ]]; then
+      printf 'hl.dsp.sendshortcut("%s")' "$arg"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# Invite de saisie de la nouvelle touche (robuste et découplée)
+prompt_new_key() {
+  local desc="$1" current_key="$2"
+  local prompt_text="Nouveau raccourci pour : $desc (Actuel : $current_key)"
+  local input=""
+
+  # Priorité 1 : Rofi si explicitement actif ou demandé
+  if command -v rofi &>/dev/null && [[ "${FORCE_ROFI:-0}" == "1" ]]; then
+    input=$(rofi -dmenu -p "$prompt_text" -lines 0 -theme-str 'entry { placeholder: "ex: SUPER + SHIFT + T"; }' 2>/dev/null || true)
+  # Priorité 2 : Zenity (boîte GTK Wayland autonome, zéro collision IPC)
+  elif command -v zenity &>/dev/null; then
+    input=$(zenity --entry --title="Kortex Keybind Editor" \
+      --text="Modification de touche pour <b>$desc</b>\nCombinaison actuelle : <code>$current_key</code>" \
+      --entry-text="$current_key" 2>/dev/null || true)
+  # Priorité 3 : omarchy-menu-input avec pause de déconfliction
+  elif command -v omarchy-menu-input &>/dev/null; then
+    sleep 0.15
+    input=$(omarchy-menu-input "$prompt_text" --width 500 2>/dev/null || true)
+  # Priorité 4 : Terminal standard (fallback interactif)
+  else
+    read -r -p "$prompt_text " input
+  fi
+
+  echo "$input"
+}
+
+# Fonction principale d'application de modification
+apply_keybind_update() {
+  local desc="$1" new_key="$2" old_key="${3:-}" disp="${4:-}" arg="${5:-}"
+
+  new_key=$(normalize_key "$new_key")
+  [[ -n "$old_key" ]] && old_key=$(normalize_key "$old_key")
+
+  if [[ -z "$new_key" ]]; then
+    echo "Opération annulée : saisie vide." >&2
+    return 1
+  fi
+
+  if [[ -n "$old_key" && "$new_key" == "$old_key" ]]; then
+    notify_user "low" "Keybind Editor" "Aucun changement ($new_key inchangé)."
+    return 0
+  fi
+
+  # Résolution de l'action Lua
+  local action
+  action=$(get_action_for "$desc" "$disp" "$arg" || true)
+  if [[ -z "$action" ]]; then
+    notify_user "critical" "Erreur Keybind" "Impossible de déterminer l'action associée à '$desc'."
+    return 1
+  fi
+
+  # Préparation du fichier temporaire
+  local tmp_file
+  tmp_file=$(mktemp "${BINDINGS_FILE}.XXXXXX")
+  local start_marker="-- [KEYBIND: $desc]"
+  local end_marker="-- [/KEYBIND: $desc]"
+
+  # Nettoyage de l'éventuel ancien bloc d'override pour cette action
+  awk -v start="$start_marker" -v end="$end_marker" '
+    $0 == start { skip=1; next }
+    $0 == end { skip=0; next }
+    !skip { print }
+  ' "$BINDINGS_FILE" > "$tmp_file"
+
+  # Écriture du nouveau bloc d'override Lua
+  cat <<LUA >> "$tmp_file"
+
+-- [KEYBIND: $desc]
+$([ -n "$old_key" ] && echo "hl.unbind(\"$old_key\")")
+hl.unbind("$new_key")
+o.bind("$new_key", "$desc", $action)
+-- [/KEYBIND: $desc]
+LUA
+
+  # Validation stricte avec luac
+  if ! luac -p "$tmp_file" 2>&1; then
+    notify_user "critical" "Erreur de syntaxe Lua" "La syntaxe générée est invalide. Fichier non modifié."
+    rm -f "$tmp_file"
+    return 1
+  fi
+
+  # Remplacement atomique
+  mv "$tmp_file" "$BINDINGS_FILE"
+
+  # Rechargement Hyprland à chaud
+  if command -v hyprctl &>/dev/null; then
+    hyprctl reload >/dev/null 2>&1 || true
+    local errors
+    errors=$(hyprctl configerrors 2>&1 || true)
+    if [[ -n "$errors" ]]; then
+      notify_user "critical" "Erreur Hyprland" "$errors"
+      return 1
+    fi
+  fi
+
+  # Invalidation du cache des raccourcis
+  rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/omarchy"/keybindings-*.records 2>/dev/null || true
+
+  notify_user "normal" "Raccourci mis à jour !" "$desc :\n${old_key:+$old_key ➔ }$new_key"
+  return 0
+}
+
+edit_keybind_from_selection() {
+  local target_selection="$1" records="$2"
+  local key_combo desc record dispatcher arg
+
+  key_combo=$(echo "$target_selection" | awk -F ' → ' '{print $1}' | sed -E 's/[[:space:]]+$//')
+  desc=$(echo "$target_selection" | awk -F ' → ' '{print $2}' | sed -E 's/^[[:space:]]+//')
+
+  record=$(awk -F '\t' -v selection="$target_selection" '$1 == selection { print; exit }' <<<"$records")
+  dispatcher=$(cut -f2 <<<"$record")
+  arg=$(cut -f3- <<<"$record")
+
+  local new_key
+  new_key=$(prompt_new_key "$desc" "$key_combo")
+  [[ -z "$new_key" ]] && return 0
+
+  apply_keybind_update "$desc" "$new_key" "$key_combo" "$dispatcher" "$arg"
+}
+
+# -------------------------------------------------------------------------
+# INTERFACE CLI ET MODES D'EXÉCUTION
+# -------------------------------------------------------------------------
+
+MODE="normal"
+FORCE_ROFI=0
+
+while (( $# > 0 )); do
+  case "$1" in
+    --print|-p)
+      MODE="print"
+      ;;
+    --edit|-e)
+      MODE="edit"
+      ;;
+    --rofi)
+      FORCE_ROFI=1
+      ;;
+    --set-key)
+      shift
+      if (( $# < 2 )); then
+        echo "Usage: kortex-menu-keybindings --set-key <description> <new_key>" >&2
+        exit 1
+      fi
+      target_desc="$1"
+      target_key="$2"
+      records=$(output_binding_records)
+      # Trouver l'ancien key_combo et les métadonnées
+      rec=$(awk -F '\t' -v d="$target_desc" '$1 ~ ("→ " d "$") { print; exit }' <<<"$records")
+      old_k=$(echo "$rec" | cut -f1 | awk -F ' → ' '{print $1}' | sed -E 's/[[:space:]]+$//')
+      disp=$(echo "$rec" | cut -f2)
+      arg=$(echo "$rec" | cut -f3-)
+      apply_keybind_update "$target_desc" "$target_key" "$old_k" "$disp" "$arg"
+      exit $?
+      ;;
+    --test)
+      echo "=== TEST DU MOTEUR KEYBIND EDITOR KORTEX ==="
+      records=$(output_binding_records)
+      echo "Total raccourcis détectés : $(wc -l <<<"$records")"
+      echo "Test de résolution pour 'Terminal' :"
+      rec=$(awk -F '\t' '$1 ~ /Terminal/ { print; exit }' <<<"$records")
+      echo "Ligne record : $rec"
+      d="Terminal"
+      k=$(echo "$rec" | cut -f1 | awk -F ' → ' '{print $1}' | sed -E 's/[[:space:]]+$//')
+      disp=$(echo "$rec" | cut -f2)
+      arg=$(echo "$rec" | cut -f3-)
+      act=$(get_action_for "$d" "$disp" "$arg")
+      echo "Action Lua calculée : $act"
+      echo "Test de capture interactif :"
+      read -r -p "Entrez une combinaison de test (ex: SUPER + SHIFT + T, ou Entrée pour annuler) : " test_input
+      if [[ -n "$test_input" ]]; then
+        echo "Touche normalisée : '$(normalize_key "$test_input")'"
+      else
+        echo "Test annulé par l'utilisateur."
+      fi
+      exit 0
+      ;;
+    -h|--help)
+      cat <<EOF
+Usage: kortex-menu-keybindings [OPTIONS]
+
+Options:
+  --print, -p                 Afficher la liste des raccourcis sur stdout.
+  --edit, -e                  Ouvrir directement le sélecteur pour modifier un raccourci.
+  --set-key <desc> <new_key>  Modifier directement un raccourci sans invite graphique.
+  --test                      Tester le moteur d'extraction et de capture en terminal.
+  --rofi                      Utiliser Rofi (si installé) avec Clic Droit / Alt+Entrée.
+  -h, --help                  Afficher cette aide.
+EOF
+      exit 0
+      ;;
+  esac
+  shift
+done
+
+if [[ "$MODE" == "print" ]]; then
+  output_keybindings
+  exit 0
+fi
+
+records=$(output_binding_records)
+all_bindings=$(cut -f1 <<<"$records")
+
+# 1. MODE ROFI (si installé et demandé, ou si rofi est présent)
+if command -v rofi &>/dev/null && { (( FORCE_ROFI == 1 )) || [[ -n "${ROFI_MODI:-}" ]]; }; then
+  rofi_cmd=(rofi -dmenu -i -p "Keybindings (Alt+Entrée ou Clic Droit = Modifier)" \
+    -kb-custom-1 "Alt+Return" \
+    -me-select-entry '' \
+    -me-accept-custom 'MouseSecondary')
+  
+  selection=$(echo "$all_bindings" | "${rofi_cmd[@]}" 2>/dev/null || true)
+  rofi_status=$?
+
+  if [[ -z "$selection" ]]; then
+    exit 0
+  fi
+
+  # Code 10 = kb-custom-1 (Alt+Entrée ou Clic Droit)
+  if (( rofi_status == 10 )); then
+    edit_keybind_from_selection "$selection" "$records"
+  elif (( rofi_status == 0 )); then
+    record=$(awk -F '\t' -v selection="$selection" '$1 == selection { print; exit }' <<<"$records")
+    dispatcher=$(cut -f2 <<<"$record")
+    arg=$(cut -f3- <<<"$record")
+    dispatch_binding "$dispatcher" "$arg"
+  fi
+  exit 0
+fi
+
+# 2. MODE ÉDITION DIRECT (ex: Super + Shift + K)
+if [[ "$MODE" == "edit" ]]; then
+  selection=$(echo "$all_bindings" | omarchy-menu-select 'Modifier le raccourci' -- --width 800 --height 500 2>/dev/null || true)
+  if [[ -n "$selection" ]]; then
+    edit_keybind_from_selection "$selection" "$records"
+  fi
+  exit 0
+fi
+
+# 3. MODE NORMAL (Quickshell Omarchy / Kortex via Super + K)
+EDIT_HEADER="✏️  [Mode Édition : Modifier un raccourci]"
+menu_items=$(printf '%s\n%s' "$EDIT_HEADER" "$all_bindings")
+
+selection=$(echo "$menu_items" | omarchy-menu-select 'Keybindings' -- --width 800 --height 500 2>/dev/null || true)
+
+if [[ -z "$selection" ]]; then
+  exit 0
+fi
+
+# Si l'utilisateur clique sur le mode édition en haut de liste
+if [[ "$selection" == "$EDIT_HEADER" ]]; then
+  sleep 0.1
+  edit_selection=$(echo "$all_bindings" | omarchy-menu-select 'Sélectionner le raccourci à modifier' -- --width 800 --height 500 2>/dev/null || true)
+  if [[ -n "$edit_selection" ]]; then
+    edit_keybind_from_selection "$edit_selection" "$records"
+  fi
+  exit 0
+fi
+
+# Si l'utilisateur clique sur un raccourci : exécution normale
+record=$(awk -F '\t' -v selection="$selection" '$1 == selection { print; exit }' <<<"$records")
+dispatcher=$(cut -f2 <<<"$record")
+arg=$(cut -f3- <<<"$record")
+dispatch_binding "$dispatcher" "$arg"

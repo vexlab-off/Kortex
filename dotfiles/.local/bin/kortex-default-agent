@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Custom kortex-default-agent supporting anti-gravity alongside standard agents
+
+installing=false
+if [[ ${1:-} == "--install" ]]; then
+  installing=true
+  shift
+fi
+
+agent_file="$HOME/.config/kortex/defaults/agent"
+
+target="${1:-}"
+
+case "$target" in
+anti-gravity | antigravity | agy)
+  mkdir -p "$(dirname "$agent_file")"
+  printf '%s\n' "anti-gravity" >"$agent_file"
+  if [[ $installing == "true" ]]; then
+    printf '\033[2J\033[3J\033[H'
+    exec kortex-agent --inline
+  else
+    exec kortex-agent
+  fi
+  ;;
+"")
+  if [[ -f $agent_file ]]; then
+    read -r agent <"$agent_file"
+    [[ -n ${agent:-} ]] && echo "$agent"
+    exit 0
+  fi
+  exec /usr/share/omarchy/bin/omarchy-default-agent
+  ;;
+*)
+  if [[ $installing == "true" ]]; then
+    exec /usr/share/omarchy/bin/omarchy-default-agent --install "$@"
+  else
+    exec /usr/share/omarchy/bin/omarchy-default-agent "$@"
+  fi
+  ;;
+esac

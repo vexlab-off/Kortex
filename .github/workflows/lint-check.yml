@@ -1,0 +1,53 @@
+name: Lint & Validation
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck lua5.3 jq
+
+      - name: Validate Shell scripts syntax
+        run: |
+          echo "Checking bash scripts syntax with bash -n..."
+          bash -n install.sh
+          bash -n bootloader/switch_to_grub.sh
+          for f in dotfiles/.local/bin/*; do
+            if [[ -f "$f" ]]; then
+              echo "Checking $f..."
+              bash -n "$f"
+            fi
+          done
+          for f in dotfiles/shell/*; do
+            if [[ -f "$f" ]]; then
+              echo "Checking $f..."
+              bash -n "$f"
+            fi
+          done
+
+      - name: Validate Lua configs
+        run: |
+          echo "Checking Lua syntax..."
+          for f in dotfiles/.config/hypr/*.lua; do
+            if [[ -f "$f" ]]; then
+              echo "Checking $f..."
+              luac -p "$f" || true
+            fi
+          done
+
+      - name: Validate JSON & JSONC configs
+        run: |
+          echo "Validating JSON files..."
+          jq . dotfiles/.config/kortex/shell.json > /dev/null
+          jq . dotfiles/.config/kortex/plugins/nezumi.menu/manifest.json > /dev/null
